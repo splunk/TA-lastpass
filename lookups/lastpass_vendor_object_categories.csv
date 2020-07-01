@@ -1,0 +1,87 @@
+﻿vendor_action,result,status,object_category
+Account Lockout,locked by policy,,Individual Acct
+Add Global Equiv Domain,,success,Enterprise Admin
+Add Global Never URLs,,success,Enterprise Admin
+Add Global Only URLs,,success,Enterprise Admin
+Add Policy,,success,Enterprise Admin
+Add Secure Note,,success,Secure Note
+Add to Group,,success,Enterprise Admin
+Add to Shared Folder,,success,Shared Site/Folder
+Create Group,,success,Enterprise Admin
+Created LastPass Account,,success,Enterprise Admin
+Created Shared Folder,,success,Shared Site/Folder
+Deactivated User,,success,Enterprise Admin
+Deactivating User,,success,Enterprise Admin
+Delete Group,,success,Enterprise Admin
+Delete Policy,,success,Enterprise Admin
+Delete Shared Sites,,success,Shared Site/Folder
+Deleted Shared Folder,,success,Shared Site/Folder
+Deleted Sites,,success,Shared Site/Folder
+Destroy All Sessions,,success,Enterprise Admin
+Disabled,,success,Enterprise Admin
+Disabled [Auth-Method],,success,Enterprise Admin
+Disabled Google Authenticator,,success,Enterprise Admin
+Disabled LastPass Authentication,,success,Enterprise Admin
+Disabled Microsoft Authenticator,,success,Enterprise Admin
+Disabled Multifactor Authentication,,success,Individual Acct
+Edit Group,,success,Enterprise Admin
+Edit Policy,,success,Enterprise Admin
+Edit Secure Note,,success,Secure Note
+Employee Account Created,,success,Enterprise Admin
+Employee Account Deleted,,success,Enterprise Admin
+Employee Account Requires Activation,user provisioning policy enforced,success,Enterprise Admin
+Employee Invited,,success,Enterprise Admin
+Enterprise API Secret regenerated,,success,Enterprise Admin
+Failed Login Attempt,,failure,Individual Acct
+Form Filled,,,Form
+Get Shared Folder Data,,,Enterprise Admin
+Get User Data,,,Enterprise Admin
+Group Addition,,success,Group
+Group Removal,,success,Group
+Iterations Changed,,success,Individual Acct
+LastPass Login,,success,Individual Acct
+Limit Shared Folder,,success,Shared Site/Folder
+Log in,,success,Individual Acct
+Login,,success,Individual Acct
+Login to Admin Console,,success,Enterprise Admin
+Login Verification Email Sent,user provisioning policy enforced,success,Enterprise Admin
+Make Admin,,success,Enterprise Admin
+Master Password Changed,,success,Individual Acct
+Master Password Reuse,,,Individual Acct
+Move from Shared Folder,,success,Shared Site/Folder
+Move to Shared Folder,,success,Shared Site/Folder
+Multifactor Enabled,,success,Enterprise Admin
+Open Secure Note,,,Individual Acct
+Password Changed,,success,Individual Acct
+Password Reset,,success,Enterprise Admin
+Password Reuse,,success,Enterprise Admin
+Permanently Deleted Shared Folder,,success,Shared Site/Folder
+Personal Share,,success,Individual Acct
+Provisioning credential changed,,success,Enterprise Admin
+Provisioning service added,,success,Enterprise Admin
+Provisioning service removed,,success,Enterprise Admin
+Provisioning sync happened,,success,Enterprise Admin
+Re-invite User,,success,Enterprise Admin
+Reactivated User,,success,Enterprise Admin
+Remove Admin,,success,Enterprise Admin
+Remove from Group,,success,Enterprise Admin
+Remove Global Equiv Domain,,success,Enterprise Admin
+Remove Global Never URLs,,success,Enterprise Admin
+Remove User From Company,,success,Enterprise Admin
+Removed From Shared Folder,,success,Shared Site/Folder
+Rename Group,,success,Enterprise Admin
+Renamed Shared Folder,,success,Shared Site/Folder
+Reporting,,,Enterprise Admin
+Require Password Change,user provisioning policy enforced,success,Enterprise Admin
+Restored Shared Folder,,success,Shared Site/Folder
+SAML Login,,success,Individual Acct
+SCIM Provisioning Hash Updated,,success,Enterprise Admin
+Sharing key updated,,success,Individual Acct
+Site Added,,success,Individual Acct
+Site Changed,,success,Individual Acct
+Stop Requiring Password Change,,success,Enterprise Admin
+Update Folder Permissions,,success,Enterprise Admin
+Update Policy Users,,success,Enterprise Admin
+User deprovisioned,,success,Enterprise Admin
+User provisioned,,success,Enterprise Admin
+Username Changed,,success,Individual Acct
