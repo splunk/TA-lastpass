@@ -18,8 +18,7 @@ You will need the following to collect reporting event data from LastPass:
 
 3. Provisioning hash 
 
-4. Identified index to store data 
-
+4. Index name to store data 
 
 Deploy this TA through either of two effective methods:
 
@@ -35,7 +34,35 @@ Deploy this TA through either of two effective methods:
   1. Within Splunk Web UI, navigate to the _Manage Apps_ page and install by file
      - *Note:* there may be upload restrictions or failed uploads depending on environment settings
 
-## Acceptable Usage
+### Setup
+
+    *Not covered: configuration to forward data to Splunk deployment*
+
+1. Navigate to the *Configuration* page withiin the TA lastpass namespace.
+
+2. Click button for *Create New Input* and select among the following inputs for data collection:
+
+   - Event Reporting
+
+   - User inventory
+
+   - Shared Folder inventory
+
+3. Complete the setup form.
+
+   * Name - label for your input
+
+   * Interval - how often you want to collect? (Recommended: every 60 seconds or minute)
+
+   * Index - Splunk index
+
+   * LastPass API URL - default is already set, but if you have a separate URL, please fill-in
+
+   * Collection Start Time - timestamp for collection. Support backfill and PST is only supported timezone (per vendor documentation, may vary depending on account)
+
+
+Various CIM Data Models have been mapped to the various event and inventory data. Feel free to consider installing this TA onto both SH and HWF/UFs.
+
 
 LastPass is a trademark of LastPass. Use of their API is subject to their terms of service.
 https://lastpass.com/terms-of-service
