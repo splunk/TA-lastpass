@@ -33,17 +33,16 @@ def validate_input(helper, definition):
     # lastpass_api_url = definition.parameters.get('lastpass_api_url', None)
     # time_start = definition.parameters.get('time_start', None)
     url = definition.parameters.get('lastpass_api_url', None)
-    try:
-        if 'https' in url:
-            return
-        # replace if http but not https
-        elif 'http' in url and 'https' not in url:
-            raise InputError('"HTTP" protocol not allowed. Enforcing HTTPS.')
-        elif '.' not in url:
-            raise InputError('URL submission invalid. Please validate domain.')
-    except Exception as e:
-        helper.log_error('{e.__class__.__name__}: LastPass http input definition failed: {e.message}')
-        return None
+    if 'https://' in url:
+        return
+    # replace if http but not https
+    elif 'http' in url and 'https://' not in url:
+        raise ValueError('"HTTP" protocol not allowed. Please update for HTTPS.')
+    elif '.' not in url:
+        raise ValueError('URL submission invalid. Please validate domain.')
+    elif 'https://' not in url:
+        # add proper url
+        definition.parameters['lastpass_api_url'] = 'https://'+url
 
 
 def save_checkpoint(helper, index):
@@ -59,7 +58,7 @@ def save_checkpoint(helper, index):
         else:
             raise Exception(f'Invalid index key. Please validate value for index: {index}')
     except Exception as e:
-        raise IOError(f'Save checkpoint failed. index="{index}" reason="{e.message}"')
+        raise IOError(f'Save checkpoint failed. index="{index}" reason="{e}"')
 
 
 def get_checkpoint(helper):
@@ -186,6 +185,9 @@ def collect_events(helper, ew):
 
     if not rest_url:
         rest_url = 'https://lastpass.com/enterpriseapi.php'
+    # pre-fix domain to proper URL
+    elif 'https://' not in rest_url:
+        rest_url = f'https://{rest_url}'
 
     helper.log_debug(f'LastPass parameter check: rest_url={rest_url}')
     headers = { 'Content-Type': 'application/json' }
