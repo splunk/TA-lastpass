@@ -1,6 +1,7 @@
 
 # encoding = utf-8
 
+import re
 import os
 import sys
 import time
@@ -210,6 +211,8 @@ def collect_events(helper, ew):
         
         if resp_ev.status_code != 200:
             helper.log_critical('LastPass report collection. request data failed.')
+        elif re.search(r"(Authorization Error)", resp_ev.text)
+            helper.log_exception('LastPass report collection. request data failed. 401: Unauthorized. Verify cid/provhash.')
             
         resp_ev_json = resp_ev.json()
 
