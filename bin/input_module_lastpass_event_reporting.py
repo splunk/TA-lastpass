@@ -14,6 +14,9 @@ import traceback
 LASTPASS_TIMEFORMAT = '%Y-%m-%d %H:%M:%S'  # PST
 LP_CHECKPOINT_KEY = 'LastPass_reporting'
 CMD_REPORTING = 'reporting'
+STR_TSTART = 'time_start'
+STR_TEND = 'time_end'
+STR_TCURR = 'time_curr'
 
 '''
     IMPORTANT
@@ -39,16 +42,16 @@ def validate_input(helper, definition):
         return
     # replace if http but not https
     elif 'http' in url and 'https://' not in url:
-        helper.log_error('"HTTP" protocol not allowed. Please update for HTTPS.')
-        raise ValueError('"HTTP" protocol not allowed. Please update for HTTPS.')
+        helper.log_error(f'"HTTP" protocol not allowed. Please update for HTTPS.')
+        raise ValueError(f'"HTTP" protocol not allowed. Please update for HTTPS.')
     elif '.' not in url:
-        helper.log_error('URL submission invalid. Please validate domain.')
-        raise ValueError('URL submission invalid. Please validate domain.')
+        helper.log_error(f'URL submission invalid. Please validate domain.')
+        raise ValueError(f'URL submission invalid. Please validate domain.')
     elif 'https://' not in url:
         # add proper url
         definition.parameters['lastpass_api_url'] = 'https://'+url
 
-    time_start = definition.parameters.get('time_start', None)
+    time_start = definition.parameters.get(STR_TSTART, None)
     try:
         if str(time_start).isdigit():
             time_dt = datetime.datetime.fromtimestamp(int(time_start))
@@ -68,36 +71,6 @@ def validate_input(helper, definition):
         return None
 
 
-def get_time_dt(helper, time_val):
-    ''' evaluates time format and returns datetime. None if error.
-    @param time_val: timestamp value to check
-
-    @return time_dt: datetime or None
-    '''
-
-    if not time_val:
-        return None
-
-    try:
-        time_dt = None
-        if str(time_val).isdigit():
-            time_dt = datetime.datetime.fromtimestamp(int(time_val))
-        else:
-            time_dt = datetime.datetime.strptime(str(time_val), LASTPASS_TIMEFORMAT)
-
-    except Exception as e:
-        helper.warning('Validating time format. Time conversion failed. time_val="{time_val}" reason="{e}"')
-        return None
-
-    diff = datetime.datetime.now() - time_dt
-    # check for within last 4y or if time is ahead
-    if diff.days > (365*4) or diff.days < 0:
-        helper.log_warning(f'Validating time format. out of range. time_val="{time_val}"')
-        return None
-
-    return time_dt
-
-
 def get_time_lp(time_val):
     ''' return time value for date format suitable for lastpass API 
     @param time_val: epoch time or datetime object
@@ -111,44 +84,167 @@ def get_time_lp(time_val):
     return datetime.datetime.fromtimestamp(int(time_val)).strftime(LASTPASS_TIMEFORMAT)
 
 
-def save_checkpoint(helper, time_val):
-    ''' 
-        update checkpoint with time value as epoch
-        @param time_val: epoch time or datetime object
-        @type time_val: datetime
+def check_datetime(val):
+    '''
+        verify time value is a datetime object
+        @param val: time value
+        @type val: datetime or other
     '''
 
     try:
-        if str(time_val).isdigit():
-            helper.save_check_point(LP_CHECKPOINT_KEY, time_val)
-        elif isinstance(time_val, datetime.datetime):
-            helper.save_check_point(LP_CHECKPOINT_KEY, time_val.strftime('%s'))
-        elif float(str(time_val)):
-            helper.save_check_point(LP_CHECKPOINT_KEY, time_val)
+        return isinstance(val, datetime.datetime)
+    except (TypeError, ValueError):
+        return False
+        
+
+def check_digit(val):
+    '''
+        verify time value is a digit for epoch format
+        @param val: time value
+        @type val: int or other
+    '''
+
+    try:
+        check = int(val)
+        return True
+    except (TypeError, ValueError):
+        return False
+        
+
+def check_float(val):
+    '''
+        verify time value is a float for epoch format
+        @param val: time value
+        @type val: float or other
+    '''
+
+    try:
+        return float(str(val)) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def prepare_time_value(helper, val, field_name):
+    '''
+        prepare the time value for consistent epoch-friendly format
+        @param val: time value to be stored into checkpoint
+        @type val: some format for time
+        @param field_name: checkpoint field name
+        @type field_name: str
+
+        :return: formatted time value
+    '''
+    
+    try:
+        if check_digit(val):
+            helper.log_debug(f'Verifying time value format. {field_name} is: DIGIT')
+        elif check_datetime(val):
+            helper.log_debug(f'Verifying time value format. {field_name} is: DATETIME')
+            val = val.timestamp()
+        elif float(str(val)):
+            helper.log_debug(f'Verifying time value format. {field_name} is: FLOAT')
+            val = float(str(val))
         else:
-            raise Exception('Invalid time format.')
+            raise Exception(f'Unknown value type for time format.')
     except Exception as e:
-        raise IOError('Save checkpoint failed. time_val="{time_val}" reason="{e.message}"')
+        raise IOError(f'Invalid time format for checkpointing LastPass activity input. {field_name}="{val}" type={type(val)} reason="{e.message}"')
+
+    return str(val)
+    
+
+def save_checkpoint(helper, time_curr, time_start, time_end):
+    ''' 
+        update checkpoint with time value as epoch
+        @param time_curr: epoch time or datetime object
+        @type time_curr: datetime
+        @param time_start: epoch time or datetime object
+        @type time_start: datetime
+        @param time_end: epoch time or datetime object
+        @type time_end: datetime
+    '''
+
+    state_payload = {}
+
+    try:
+        state_payload[STR_TCURR] = prepare_time_value(helper, time_curr, STR_TCURR)
+        state_payload[STR_TSTART] = prepare_time_value(helper, time_start, STR_TSTART)
+        state_payload[STR_TEND] = prepare_time_value(helper, time_end, STR_TEND)
+
+        helper.log_debug(f'Saving checkpoint. state_payload={repr(state_payload)}')
+        helper.save_check_point(LP_CHECKPOINT_KEY, state_payload)
+    except Exception as e:
+        raise IOError(f'Save checkpoint failed. time_curr="{time_curr}" time_start="{time_start}" time_end="{time_end}" reason="{e.message}"')
 
 
 def get_checkpoint(helper):
     ''' 
-        extract checkpoint time value
+        extract checkpoint payload, which includes time value
         :return: epoch time or None
     '''
 
     # if checkpoint corrupted or not readable, consider empty
     try:
-        time_val = helper.get_check_point(LP_CHECKPOINT_KEY)
+        state_payload = helper.get_check_point(LP_CHECKPOINT_KEY)
     except Exception as e:
         helper.log_warning(f'Loading checkpoint. Unable to load checkpoint. reason="{e.message}"') 
         return None
 
-    if str(time_val).isdigit():
-        return time_val
+    # handle old checkpoint and just flush out other fields
+    if check_digit(state_payload) or check_float(state_payload):
+        helper.log_warning(f'Old checkpoint found. Pushing to new model with time start, end, and current values.')
+        return {STR_TCURR: None, STR_TSTART: state_payload, STR_TEND: None}
 
-    helper.log_warning(f'Loading checkpoint. Checkpoint time value not in epoch time. time_val="{time_val}"')
+    # validate if checkpoint payload of time values are formatted in float value for epoch
+    try:
+        helper.log_debug(f'checkpoint: type={type(state_payload)} value={repr(state_payload)}')
+        if not (state_payload.get(STR_TCURR) and prepare_time_value(helper, state_payload.get(STR_TCURR), STR_TCURR)):
+            raise Exception(f'valid time_curr field not found in checkpoint payload')
+        if not (state_payload[STR_TSTART] and prepare_time_value(helper, state_payload[STR_TSTART], STR_TSTART)):
+            raise Exception(f'valid time_start field not found in checkpoint payload')
+        if not (state_payload[STR_TEND] and prepare_time_value(helper, state_payload[STR_TEND], STR_TEND)):
+            raise Exception(f'valid time_end field not found in checkpoint payload')
+
+    except Exception as e:
+        helper.log_warning(f'Save checkpoint failed. time_curr=\"{state_payload.get(STR_TCURR)}\" time_start=\"{state_payload.get(STR_TSTART)}\" time_end=\"{state_payload.get(STR_TEND)}\" reason=\"{e}\"')
+        #raise Exception(f'Save checkpoint failed. time_curr=\"{state_payload.get(STR_TCURR)}\" time_start=\"{state_payload.get(STR_TSTART)}\" time_end=\"{state_payload.get(STR_TEND)}\" reason=\"{e}\"')
+        # return None
+        return None
+    
+
+    helper.log_debug(f'Extracted checkpoint time values. time_curr=\"{state_payload.get(STR_TCURR)}\" time_start=\"{state_payload.get(STR_TSTART)}\" time_end=\"{state_payload.get(STR_TEND)}\"')
     return None
+
+
+def get_time_dt(helper, time_val):
+    ''' evaluates time format and returns datetime. None if error.
+    @param time_val: timestamp value to check
+
+    @return time_dt: datetime or None
+    '''
+
+    if not time_val:
+        return None
+
+    try:
+        time_dt = None
+        if check_digit(time_val):
+            time_dt = datetime.datetime.fromtimestamp(int(time_val))
+        elif check_float(time_val):
+            time_dt = datetime.datetime.fromtimestamp(float(time_val))
+        else:
+            time_dt = datetime.datetime.strptime(str(time_val), LASTPASS_TIMEFORMAT)
+
+    except Exception as e:
+        helper.log_warning(f'Validating time format. Time conversion failed. time_val="{time_val}" reason="{e}"')
+        return None
+
+    diff = datetime.datetime.now() - time_dt
+    # check for within last 4y or if time is ahead
+    if diff.days > (365*4) or diff.days < 0:
+        helper.log_warning(f'Validating time format. out of range. time_val="{time_val}"')
+        return None
+
+    return time_dt
 
 
 def convert_time(time_val):
@@ -158,8 +254,10 @@ def convert_time(time_val):
     @return datetime
     '''
     try:
-        if str(time_val).isdigit():
+        if check_digit(time_val):
             temp = datetime.datetime.fromtimestamp(int(time_val))
+        elif check_float(time_val):
+            temp = datetime.datetime.fromtimestamp(float(time_val))
         else:
             temp = datetime.datetime.strptime(str(time_val), LASTPASS_TIMEFORMAT)
     except:
@@ -279,13 +377,13 @@ def collect_events(helper, ew):
         rest_url = f'https://{rest_url}'
 
     # expected time format: epoch
-    time_checkpoint = get_checkpoint(helper)
+    payload_checkpoint = get_checkpoint(helper)
 
     # expected time format: datetime
-    time_start = get_time_dt(helper, helper.get_global_setting('time_start'))
+    time_start = get_time_dt(helper, helper.get_global_setting(STR_TSTART))
     time_now = datetime.datetime.now()
     
-    helper.log_debug(f'LastPass parameter check: rest_url={rest_url} time_checkpoint={time_checkpoint} time_start="{time_start}"')
+    helper.log_debug(f'LastPass parameter check: rest_url={rest_url} time_checkpoint={repr(payload_checkpoint)} time_start="{time_start}"')
     headers = {}
 
     # build data params
@@ -298,27 +396,31 @@ def collect_events(helper, ew):
     data['user'] = 'allusers'
 
     ''' algorithm w checkpointing:
-        no input and no chk => last 24h
-        no input and chk exists => chk
-        input and no chk => input
-        input and chk both = 1 => chk
+        no time input and no chk time => last 24h
+        no time input and chk time exists => chk time
+        time input and no chk time => time input
+        time input and chk time both = 1 => chk time
     '''
 
     time_default = (time_now - datetime.timedelta(days=1)).replace(microsecond=0)
 
-    if not time_start and not time_checkpoint:
+    if not time_start and not payload_checkpoint:
+        helper.log_debug(f'time_start check: not time_start and not payload_checkpoint')
         # set earliest time for collection = -24h
         time_start = time_default
 
-    elif not time_start and time_checkpoint:
-        time_start = get_time_dt(helper, time_checkpoint)
+    elif not time_start and payload_checkpoint:
+        time_start = get_time_dt(helper, payload_checkpoint)
+        helper.log_debug(f'time_start check: not time_start and payload_checkpoint')
 
-    elif time_start and not time_checkpoint:
+    elif time_start and not payload_checkpoint:
+        helper.log_debug(f'time_start check: time_start and not payload_checkpoint')
         # use specified time input
         pass
 
-    elif (time_start and time_checkpoint) and time_checkpoint - time_start > 0:
-        time_start = get_time_dt(helper, time_checkpoint)
+    elif (time_start and payload_checkpoint) and (payload_checkpoint - time_start) > 0:
+        helper.log_debug(f'time_start check: (time_start and payload_checkpoint) and (payload_checkpoint - time_start) > 0')
+        time_start = get_time_dt(helper, payload_checkpoint.get(STR_TSTART))
 
     else:
         time_start = time_default
@@ -329,33 +431,37 @@ def collect_events(helper, ew):
     day_incr = 1 if diff.days < 7 else 3
 
     if day_incr > 1:
-        helper.log_info(f'Lastpass report collection. large date range. start="{time_start}"\tend="{time_now}"')
+        helper.log_info(f'LastPass event report collection. large date range. start="{time_start}"\tend="{time_now}"')
 
     for i in range(0, diff.days+1, day_incr):
         start = time_start + datetime.timedelta(days=i)
         end = start + datetime.timedelta(days=day_incr) - datetime.timedelta(seconds=1)
         end = time_now if time_now < end else end
+        event_time = None
 
         # update query dates
         data['data']['from'] = get_time_lp(start)
         data['data']['to'] = get_time_lp(end)
 
+        helper.log_debug(f'LastPass event report collection. Tracking event pulling: time_start=\"{data["data"]["from"]}\" time_end=\"{data["data"]["to"]}\"')
+
         try:
             resp_ev = requests.post(rest_url, headers=headers, data=json.dumps(data))
             
             if resp_ev.status_code != 200:
-                helper.log_exception('LastPass report collection. request data failed.')                
-            elif re.search(r"(Authorization Error)", resp_ev.text)
-                helper.log_exception('LastPass report collection. request data failed. 401: Unauthorized. Verify cid/provhash.')
+                helper.log_exception(f'LastPass event report collection. request data failed.')                
+            elif re.search(r"(Authorization Error)", resp_ev.text):
+                helper.log_exception(f'LastPass event report collection. request data failed. 401: Unauthorized. Verify cid/provhash.')
 
             resp_ev_json = resp_ev.json()
 
             if 'OK' not in resp_ev_json['status']:
-                helper.log_error('Lastpass report collection. REST call successful, but query is bad. Validate request params. Terminating script')
+                helper.log_error(f'LastPass event report collection. REST call successful, but query is bad. Validate request params. Terminating script')
                 sys.exit(1)
             
             chk_ptr = 0
 
+            # WARNING: data is returned most recent or latest (Event1) to oldest or earliest (Event<Max>)
             for ev_id in resp_ev_json['data']:
 
                 ev_payload = copy.deepcopy(resp_ev_json['data'][ev_id])
@@ -381,14 +487,14 @@ def collect_events(helper, ew):
                 # checkpoint timestamp every 1000 messages
                 chk_ptr += 1
                 if chk_ptr % 1000 == 0:
-                    save_checkpoint(helper, event_time)
-                    helper.log_debug(f'Updating checkpoint to date: {event_time}')
+                    save_checkpoint(helper, event_time, time_start, time_now)
+                    helper.log_debug(f'LastPass event report collection. Updating checkpoint to date: time_start=\"{data["data"]["from"]}\" time_end=\"{data["data"]["to"]}\" curr_time={event_time}')
 
             # checkpoint finally when done
             if event_time:
-                save_checkpoint(helper, event_time)
-                helper.log_debug(f'Updating checkpoint to date: {event_time}')
+                save_checkpoint(helper, event_time, time_start, time_now)
+                helper.log_debug(f'LastPass event report collection. Updating checkpoint to date: time_start=\"{data["data"]["from"]}\" time_end=\"{data["data"]["to"]}\" curr_time={event_time}')
 
         except Exception as e:
-            helper.log_critical(f'Lastpass identity collection. Error in forwarding data: {traceback.format_exc()}')
+            helper.log_critical(f'LastPass event report collection. Error in forwarding data: {traceback.format_exc()}')
             raise e                

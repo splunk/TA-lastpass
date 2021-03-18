@@ -10,10 +10,12 @@ import copy
 import requests
 import datetime
 import traceback
+import hashlib
 
 LP_CHECKPOINT_KEY = 'LastPass_user'
 CMD_REPORTING = 'getuserdata'
 PAGE_SIZE = 2000
+PAGE_INDEX = 0
 
 '''
     IMPORTANT
@@ -46,20 +48,25 @@ def validate_input(helper, definition):
         definition.parameters['lastpass_api_url'] = 'https://'+url
 
 
-def save_checkpoint(helper, index):
+def save_checkpoint(helper, index_users, index_groups):
     ''' 
-        update checkpoint with time value as epoch
-        @param index: page index for users
-        @type index: int
+        update checkpoint with index values for both user and group lists
+        @param index_users: page index for users
+        @param index_groups: page index for groups
+        @type index_users: int
+        @type index_users: int
     '''
 
     try:
-        if isinstance(index, int):
-            helper.save_check_point(LP_CHECKPOINT_KEY, index)
+        if isinstance(index_users, int) and isinstance(index_groups, int):
+            state_payload = {}
+            state_payload['idx_user'] = index_users
+            state_payload['idx_group'] = index_groups
+            helper.save_check_point(LP_CHECKPOINT_KEY, state_payload)
         else:
-            raise Exception(f'Invalid index key. Please validate value for index: {index}')
+            raise Exception(f'Invalid index key types for checkpointing LastPass user input: user_index={index_users} group_index={index_groups}')
     except Exception as e:
-        raise IOError(f'Save checkpoint failed. index="{index}" reason="{e}"')
+        raise IOError(f'Save LastPass user checkpoint failed. user_index={index_users} group_index={index_groups} reason="{e}"')
 
 
 def get_checkpoint(helper):
@@ -70,15 +77,15 @@ def get_checkpoint(helper):
 
     # if checkpoint corrupted or not readable, consider empty
     try:
-        index = helper.get_check_point(LP_CHECKPOINT_KEY)
+        state_payload = helper.get_check_point(LP_CHECKPOINT_KEY)
     except Exception as e:
         helper.log_warning(f'Loading checkpoint. Unable to load checkpoint. reason="{e.message}"') 
         return None
 
-    if str(index).isdigit():
-        return index
+    if isinstance(state_payload, dict):
+        return state_payload
 
-    helper.log_warning(f'Loading checkpoint. Checkpoint time value not of int type. index="{index}"')
+    helper.log_warning(f'Loading checkpoint. Invalid index key types for LastPass user input. checkpoint_payload="{repr(state_payload)}"')
     return None
 
 
@@ -195,7 +202,6 @@ def collect_events(helper, ew):
 
     # build data params
     data = {}
-    data['data'] = { 'pagesize': PAGE_SIZE }
     data['cid'] = helper.get_global_setting('cid')
     data['provhash'] = helper.get_global_setting('provhash')
     data['cmd'] = CMD_REPORTING
@@ -205,72 +211,98 @@ def collect_events(helper, ew):
         if results are larger than max page size, checkpoint page index
     '''
     
-    time_val = datetime.datetime.now().timestamp()
-    try:
-        resp_ev = requests.post(rest_url, headers=headers, data=json.dumps(data))
-        
-        if resp_ev.status_code != 200:
-            helper.log_critical('LastPass report collection. request data failed.')
-        elif re.search(r"(Authorization Error)", resp_ev.text)
-            helper.log_exception('LastPass report collection. request data failed. 401: Unauthorized. Verify cid/provhash.')
+    while True:
+
+        data['data'] = { 'pagesize': PAGE_SIZE, 'pageindex': PAGE_INDEX }
+
+        try:
+            helper.log_debug(f'LastPass identity collection. Collecting user identities. page_index={PAGE_INDEX}')
+            resp_ev = requests.post(rest_url, headers=headers, data=json.dumps(data))
             
-        resp_ev_json = resp_ev.json()
+            if resp_ev.status_code != 200:
+                helper.log_critical(f'LastPass identity collection. request data failed.')
+            elif re.search(r"(Authorization Error)", resp_ev.text):
+                helper.log_exception(f'LastPass identity collection. request data failed. 401: Unauthorized. Verify cid/provhash.')
+                
+            resp_ev_json = resp_ev.json()
 
-        # track for malformed REST call
-        if resp_ev_json.get('status') and 'OK' not in resp_ev_json.get('status'):
-            helper.log_critical('Lastpass identity collection. REST call successful, but query is bad. Validate request params. Terminating script')
-            return
-            #sys.exit(1)
+            # track for malformed REST call
+            if resp_ev_json.get('status') and 'OK' not in resp_ev_json.get('status'):
+                helper.log_critical(f'Lastpass identity collection. REST call successful, but query is bad. Validate request params. Terminating script')
+                return
+                #sys.exit(1)
 
-    except Exception as e:
-        raise e                 
+        except Exception as e:
+            raise e                 
 
-    total = resp_ev_json.get('total')
-    count = resp_ev_json.get('count')
+        total = resp_ev_json.get('total')
+        count = resp_ev_json.get('count')
 
-    # track all identities
-    users = {}
-    groups = {}
+        helper.log_debug(f'LastPass identity collection. total_identities={total} current_count={count}')
 
-    try:
-        for user in resp_ev_json.get('Users'):
-            users[user] = copy.deepcopy(resp_ev_json.get('Users')[user])
-            users[user]['user_id'] = user
-            users[user]['time_collected'] = time_val
-            users[user]['event'] = 'list_users'
+        # track all identities
+        users = {}
+        groups = {}
+        chk_user = 0
+        chk_group = 0
+        time_val = datetime.datetime.now().timestamp()
 
-            event = helper.new_event(data=json.dumps(users[user]),
-                                    time=time_val,
-                                    source=helper.get_input_type(),
-                                    index=helper.get_output_index(),
-                                    sourcetype=helper.get_sourcetype())
-            ew.write_event(event)
+        try:
+            for idx_user, user in enumerate(resp_ev_json.get('Users')):
+                users[user] = copy.deepcopy(resp_ev_json.get('Users')[user])
+                users[user]['user_id'] = user
+                users[user]['time_collected'] = time_val
+                users[user]['event'] = 'list_users'
 
-        for group in resp_ev_json.get('Groups'):
-            groups[group] = {}
-            groups['members'] = copy.deepcopy(resp_ev_json.get('Groups')[group])
-            groups[group]['group_id'] = group
-            groups[group]['time_collected'] = time_val
-            groups[group]['event'] = 'list_groups'
+                chk_user = idx_user
 
-            # can only specify one sourcetype per input, hardcode for groups
-            event = helper.new_event(data=json.dumps(groups[group]),
-                                    time=time_val,
-                                    source=helper.get_input_type(),
-                                    index=helper.get_output_index(),
-                                    sourcetype='lastpass:groups')
-            ew.write_event(event)
+                if idx_user % 250 == 0:
+                    time_val = datetime.datetime.now().timestamp()
 
-        # need to validate if need to paginate
-        chk_ptr = 0
-        if count < total:
-            chk_ptr = 0
-        
-            save_checkpoint(helper, event_time)
-            helper.log_debug(f'Updating checkpoint to index: {chk_ptr}')
-            
-            # TODO if users or groups > 2k, then need to update
+                # scrub password values from attribs
+                if users[user].get('attribs') and users[user].get('attribs').get('password'):
+                    users[user].get('attribs').update({'password': hashlib.sha1(users[user].get('attribs').get('password').encode()).hexdigest()})
 
-    except Exception as e:
-        helper.log_critical(f'Lastpass identity collection. Error in forwarding data: {traceback.format_exc()}')
-        raise e                 
+                event = helper.new_event(data=json.dumps(users[user]),
+                                        time=time_val,
+                                        source=helper.get_input_type(),
+                                        index=helper.get_output_index(),
+                                        sourcetype=helper.get_sourcetype())
+                ew.write_event(event)
+
+            for idx_group, group in enumerate(resp_ev_json.get('Groups')):
+                groups[group] = {}
+                groups[group]['members'] = copy.deepcopy(resp_ev_json.get('Groups')[group])
+                groups[group]['count'] = len(resp_ev_json.get('Groups')[group])
+                groups[group]['group_id'] = group
+                groups[group]['time_collected'] = time_val
+                groups[group]['event'] = 'list_groups'
+
+                chk_group = idx_group
+
+                if idx_group % 10 == 0:
+                    time_val = datetime.datetime.now().timestamp()
+
+                # can only specify one sourcetype per input, hardcode for groups
+                event = helper.new_event(data=json.dumps(groups[group]),
+                                        time=time_val,
+                                        source=helper.get_input_type(),
+                                        index=helper.get_output_index(),
+                                        sourcetype='lastpass:groups')
+                ew.write_event(event)
+
+            # break out if no more records to processes
+            if count >= total:
+                break
+
+            # increment page index to capture more user/group identities 
+            PAGE_INDEX += 1
+
+            save_checkpoint(helper, chk_user, chk_group)
+            helper.log_debug(f'LastPass identity collection. Updating LastPass identity checkpoint: idx_user={chk_user} idx_group={chk_group}')
+                
+        except Exception as e:
+            helper.log_critical(f'LastPass identity collection. idx_user={chk_user} idx_group={chk_group} Error in forwarding data: {traceback.format_exc()}')
+            raise e                 
+
+    helper.log_debug(f'LastPass identity collection. Complete: user identity collection. page_index={PAGE_INDEX} total_identities={total} current_count={count}')

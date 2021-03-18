@@ -11,10 +11,12 @@ import requests
 import datetime
 import traceback
 
-LP_CHECKPOINT_KEY = 'LastPass_user'
+LP_CHECKPOINT_KEY = 'LastPass_folders'
 CMD_REPORTING = 'getsfdata'
+CMD_REPORTING = 'getdetailedsfdata'
 PAGE_SIZE = 2000
 USER_EV_LIMIT = 50
+CHECKPOINT_SAVE_LIMIT = 100
 
 '''
     IMPORTANT
@@ -47,20 +49,25 @@ def validate_input(helper, definition):
         definition.parameters['lastpass_api_url'] = 'https://'+url
 
 
-def save_checkpoint(helper, index):
+def save_checkpoint(helper, idx_folder, iter_user = 0):
     ''' 
-        update checkpoint with time value as epoch
-        @param index: page index for users
-        @type index: int
+        update checkpoint with index to track folder list
+        @param idx_folder: index for folders
+        @type idx_folder: int
+        @param iter_user: index for user count within folder
+        @type iter_user: int
     '''
 
     try:
-        if isinstance(index, int):
-            helper.save_check_point(LP_CHECKPOINT_KEY, index)
+        if isinstance(idx_folder, int) and isinstance(iter_user, int):
+            state_payload = {}
+            state_payload['idx_folder'] = idx_folder
+            state_payload['iter_user'] = iter_user
+            helper.save_check_point(LP_CHECKPOINT_KEY, state_payload)
         else:
-            raise Exception(f'Invalid index key. Please validate value for index: {index}')
+            raise Exception(f'Invalid index key types for checkpointing LastPass shared folder input: folder_index={idx_folder} user_iter_index={iter_user}')
     except Exception as e:
-        raise IOError(f'Save checkpoint failed. index="{index}" reason="{e}"')
+        raise IOError(f'Save LastPass folder checkpoint failed. folder_index={idx_folder} user_iter_index={iter_user} reason="{e}"')
 
 
 def get_checkpoint(helper):
@@ -71,15 +78,16 @@ def get_checkpoint(helper):
 
     # if checkpoint corrupted or not readable, consider empty
     try:
-        index = helper.get_check_point(LP_CHECKPOINT_KEY)
+        state_payload = helper.get_check_point(LP_CHECKPOINT_KEY)
     except Exception as e:
         helper.log_warning(f'Loading checkpoint. Unable to load checkpoint. reason="{e.message}"') 
         return None
 
-    if str(index).isdigit():
-        return index
+    if isinstance(state_payload, dict):
+        return state_payload
 
-    helper.log_warning(f'Loading checkpoint. Checkpoint time value not of int type. index="{index}"')
+    helper.log_warning(f'Loading checkpoint. Invalid index key types for LastPass shared folder input. checkpoint_payload="{repr(state_payload)}"')
+
     return None
 
 
@@ -207,18 +215,19 @@ def collect_events(helper, ew):
     
     time_val = datetime.datetime.now().timestamp()
     try:
+        helper.log_debug(f'LastPass shared folder collection. Collecting shared folder details.')
         resp_ev = requests.post(rest_url, headers=headers, data=json.dumps(data))
         
         if resp_ev.status_code != 200:
-            helper.log_critical('LastPass report collection. request data failed.')
+            helper.log_critical(f'LastPass shared folder collection. request data failed.')
         elif re.search(r"(Authorization Error)", resp_ev.text)
-            helper.log_exception('LastPass report collection. request data failed. 401: Unauthorized. Verify cid/provhash.')
+            helper.log_exception(f'LastPass shared folder collection. request data failed. 401: Unauthorized. Verify cid/provhash.')
             
         resp_ev_json = resp_ev.json()
 
         # track for malformed REST call
         if resp_ev_json.get('status') and 'OK' not in resp_ev_json.get('status'):
-            helper.log_critical('Lastpass identity collection. REST call successful, but query is bad. Validate request params. Terminating script')
+            helper.log_critical(f'LastPass shared folder collection. REST call successful, but query is bad. Validate request params. Terminating script')
             return
             #sys.exit(1)
 
@@ -230,14 +239,20 @@ def collect_events(helper, ew):
     user_count = 1
     temp_folder = None
 
+    helper.log_debug(f'LastPass shared folder collection. total_folders={len(resp_ev_json)}')
     try:
-        for folder_id in resp_ev_json:
+        for idx_folder, folder_id in enumerate(resp_ev_json):
             findex = 0
             temp_folder = resp_ev_json[folder_id]
             user_count = len(resp_ev_json[folder_id]['users'])
 
+            helper.log_debug(f'LastPass shared folder collection. folder_id={folder_id} folder_user_count={user_count}')
+
+            # split folder details by user limit
             if user_count > USER_EV_LIMIT:
                 for ff in range(0, user_count, USER_EV_LIMIT):
+                    helper.log_debug(f'LastPass shared folder collection. iterating over user count. folder_id={folder_id} folder_user_count={user_count} curr_folder_user_count={ff}')
+
                     folder_idx = f'{folder_id}-{findex}'
                     folders[folder_idx] = {}
                     folders[folder_idx]['folder_id'] = folder_idx
@@ -260,7 +275,15 @@ def collect_events(helper, ew):
                                             index=helper.get_output_index(),
                                             sourcetype=helper.get_sourcetype())
                     ew.write_event(event)
+
                     findex += 1
+
+                    if findex % 3 == 0:
+                        save_checkpoint(helper, idx_folder, ff)
+                        helper.log_debug(f'LastPass shared folder collection. Updating LastPass identity checkpoint: {idx_folder} folder_user_iter={ff}')
+                        
+                    # TODO need to validate limits on collecting shared folders
+
             else:
                 folders[folder_id] = {}
                 folders[folder_id].update(temp_folder)
@@ -276,18 +299,11 @@ def collect_events(helper, ew):
                                         sourcetype=helper.get_sourcetype())
                 ew.write_event(event)                
 
-        # need to validate if need to paginate
-        chk_ptr = 0
-        '''
-        if count < total:
-            chk_ptr = 0
-        
-            save_checkpoint(helper, event_time)
-            helper.log_debug(f'Updating checkpoint to index: {chk_ptr}')
-            
-            # TODO need to validate limits on collecting shared folders
-        '''
+                # checkpoint folder details for tracking
+                if idx_folder % CHECKPOINT_SAVE_LIMIT == 0:
+                    save_checkpoint(helper, idx_folder)
+                    helper.log_debug(f'LastPass shared folder collection. Updating LastPass identity checkpoint: {idx_folder}')
 
     except Exception as e:
-        helper.log_critical('Lastpass identity collection. Error in forwarding data: {traceback.format_exc()}')
+        helper.log_critical(f'Lastpass identity collection. Error in forwarding data: {traceback.format_exc()}')
         raise e                 
