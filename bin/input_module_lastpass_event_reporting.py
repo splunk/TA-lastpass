@@ -13,7 +13,7 @@ import traceback
 
 LASTPASS_TIMEFORMAT = '%Y-%m-%d %H:%M:%S'  # PST
 LP_CHECKPOINT_KEY = 'LastPass_reporting'
-CMD_REPORTING = 'reporting'
+CMD_KEY = 'reporting'
 STR_TSTART = 'time_start'
 STR_TEND = 'time_end'
 STR_TCURR = 'time_curr'
@@ -391,7 +391,7 @@ def collect_events(helper, ew):
     data['data'] = {}
     data['cid'] = helper.get_global_setting('cid')
     data['provhash'] = helper.get_global_setting('provhash')
-    data['cmd'] = CMD_REPORTING
+    data['cmd'] = CMD_KEY
     data['apiuser'] = 'splunk.collector'
     data['user'] = 'allusers'
 

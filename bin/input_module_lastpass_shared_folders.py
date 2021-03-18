@@ -12,8 +12,8 @@ import datetime
 import traceback
 
 LP_CHECKPOINT_KEY = 'LastPass_folders'
-CMD_REPORTING = 'getsfdata'
-CMD_REPORTING = 'getdetailedsfdata'
+CMD_KEY = 'getsfdata'
+CMD_KEY = 'getdetailedsfdata'
 PAGE_SIZE = 2000
 USER_EV_LIMIT = 50
 CHECKPOINT_SAVE_LIMIT = 100
@@ -206,7 +206,7 @@ def collect_events(helper, ew):
     data = {}
     data['cid'] = helper.get_global_setting('cid')
     data['provhash'] = helper.get_global_setting('provhash')
-    data['cmd'] = CMD_REPORTING
+    data['cmd'] = CMD_KEY
     data['apiuser'] = 'splunk.collector'
 
     ''' algorithm w checkpointing:
@@ -220,7 +220,7 @@ def collect_events(helper, ew):
         
         if resp_ev.status_code != 200:
             helper.log_critical(f'LastPass shared folder collection. request data failed.')
-        elif re.search(r"(Authorization Error)", resp_ev.text)
+        elif re.search(r"(Authorization Error)", resp_ev.text):
             helper.log_exception(f'LastPass shared folder collection. request data failed. 401: Unauthorized. Verify cid/provhash.')
             
         resp_ev_json = resp_ev.json()

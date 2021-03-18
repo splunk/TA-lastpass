@@ -13,7 +13,7 @@ import traceback
 import hashlib
 
 LP_CHECKPOINT_KEY = 'LastPass_user'
-CMD_REPORTING = 'getuserdata'
+CMD_KEY = 'getuserdata'
 PAGE_SIZE = 2000
 PAGE_INDEX = 0
 
@@ -189,6 +189,8 @@ def collect_events(helper, ew):
         ew.write_event(event)
     '''
 
+    global PAGE_INDEX
+
     rest_url = helper.get_arg('lastpass_api_url')
 
     if not rest_url:
@@ -204,13 +206,15 @@ def collect_events(helper, ew):
     data = {}
     data['cid'] = helper.get_global_setting('cid')
     data['provhash'] = helper.get_global_setting('provhash')
-    data['cmd'] = CMD_REPORTING
+    data['cmd'] = CMD_KEY
     data['apiuser'] = 'splunk.collector'
 
     ''' algorithm w checkpointing:
         if results are larger than max page size, checkpoint page index
     '''
-    
+
+    chk_user = 0
+
     while True:
 
         data['data'] = { 'pagesize': PAGE_SIZE, 'pageindex': PAGE_INDEX }
@@ -229,6 +233,7 @@ def collect_events(helper, ew):
             # track for malformed REST call
             if resp_ev_json.get('status') and 'OK' not in resp_ev_json.get('status'):
                 helper.log_critical(f'Lastpass identity collection. REST call successful, but query is bad. Validate request params. Terminating script')
+                #helper.log_debug(f'Lastpass identity collection. Failed request: {data}')
                 return
                 #sys.exit(1)
 
@@ -243,8 +248,8 @@ def collect_events(helper, ew):
         # track all identities
         users = {}
         groups = {}
-        chk_user = 0
         chk_group = 0
+        chk_invited = False
         time_val = datetime.datetime.now().timestamp()
 
         try:
@@ -254,14 +259,25 @@ def collect_events(helper, ew):
                 users[user]['time_collected'] = time_val
                 users[user]['event'] = 'list_users'
 
-                chk_user = idx_user
+                chk_user += 1
 
-                if idx_user % 250 == 0:
+                if chk_user % 250 == 0:
                     time_val = datetime.datetime.now().timestamp()
 
-                # scrub password values from attribs
-                if users[user].get('attribs') and users[user].get('attribs').get('password'):
-                    users[user].get('attribs').update({'password': hashlib.sha1(users[user].get('attribs').get('password').encode()).hexdigest()})
+                # attrib field cleanup
+                if users[user].get('attribs'):
+                    # detect and render if name is JSON
+                    if users[user].get('attribs').get('name'):
+                        try:
+                            test = json.loads(users[user].get('attribs').get('name'))
+                            users[user].get('attribs').update({'name': test})
+                        # do not change if not a JSON value
+                        except:
+                            pass
+
+                    # scrub password values from attribs
+                    if users[user].get('attribs').get('password'):
+                        users[user].get('attribs').update({'password': hashlib.sha1(users[user].get('attribs').get('password').encode()).hexdigest()})
 
                 event = helper.new_event(data=json.dumps(users[user]),
                                         time=time_val,
@@ -270,7 +286,8 @@ def collect_events(helper, ew):
                                         sourcetype=helper.get_sourcetype())
                 ew.write_event(event)
 
-            for idx_group, group in enumerate(resp_ev_json.get('Groups')):
+            iter_group = resp_ev_json.get('Groups') if resp_ev_json.get('Groups') else {}
+            for idx_group, group in enumerate(iter_group):
                 groups[group] = {}
                 groups[group]['members'] = copy.deepcopy(resp_ev_json.get('Groups')[group])
                 groups[group]['count'] = len(resp_ev_json.get('Groups')[group])
@@ -291,8 +308,25 @@ def collect_events(helper, ew):
                                         sourcetype='lastpass:groups')
                 ew.write_event(event)
 
+            if resp_ev_json.get('invited') and not chk_invited:
+                invited = {}
+                invited['members'] = copy.deepcopy(resp_ev_json.get('invited'))
+                invited['count'] = len(resp_ev_json.get('invited'))
+                invited['time_collected'] = time_val
+                invited['event'] = 'list_invited'
+
+                # can only specify one sourcetype per input, hardcode for groups
+                event = helper.new_event(data=json.dumps(invited),
+                                        time=time_val,
+                                        source=helper.get_input_type(),
+                                        index=helper.get_output_index(),
+                                        sourcetype='lastpass:invited')
+                ew.write_event(event)
+                chk_invited = True
+
             # break out if no more records to processes
-            if count >= total:
+            if chk_user >= total or count < PAGE_SIZE:
+                helper.log_debug(f'LastPass identity collection. Reached end of user list: idx_user={chk_user}')
                 break
 
             # increment page index to capture more user/group identities 
